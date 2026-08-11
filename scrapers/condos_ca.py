@@ -102,8 +102,8 @@ def scrape(site_config: dict) -> list[dict]:
         beds = int(beds_raw.split("+")[0])
         has_den = "+" in beds_raw
 
-        if beds != 1:
-            continue  # only want 1BR (with or without den)
+        if beds not in (1, 2):
+            continue  # only want 1-2BR (each optionally +den)
 
         unit_url = f"{url}/unit-{m.group('unit')}-{m.group('mls')}"
         detail = _fetch_unit_detail(unit_url)

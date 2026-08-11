@@ -67,7 +67,7 @@ def _extract_embedded_json(html: str, var_name: str) -> dict:
 
 def _candidate_building_paths(search_path: str) -> list[dict]:
     """Step 1: find buildings on the neighbourhood search page whose beds
-    range includes 1 and which aren't room-shares. Returns lightweight
+    range overlaps 1-2BR and which aren't room-shares. Returns lightweight
     dicts with just enough to fetch each building's own page next.
     """
     html = fetch_html(BASE_URL.format(path=search_path))
@@ -80,7 +80,8 @@ def _candidate_building_paths(search_path: str) -> list[dict]:
         if not (node.get("listingType") or "").startswith("residential:apartment"):
             continue
         beds_range = node.get("bedsRange") or [None, None]
-        if not (beds_range[0] is not None and beds_range[0] <= 1 <= (beds_range[1] or beds_range[0])):
+        lo, hi = beds_range[0], (beds_range[1] or beds_range[0])
+        if lo is None or hi < 1 or lo > 2:  # no overlap with 1-2BR
             continue
         out.append({"path": node.get("path"), "name": node.get("rentalListingName")})
     return out
@@ -129,7 +130,7 @@ def scrape(site_config: dict) -> list[dict]:
         has_indoor_pool = any(k in amenities_text for k in POOL_INDOOR_KEYWORDS)
 
         for unit in listing.get("units", []):
-            if unit.get("beds") != 1.0:
+            if unit.get("beds") not in (1.0, 2.0):
                 continue
 
             unit_furnished_raw = unit.get("furnished") or building_furnished_raw
@@ -144,7 +145,7 @@ def scrape(site_config: dict) -> list[dict]:
                 "address": f"{address1}, {city}".strip(", "),
                 "unit_or_layout": f"unit {unit.get('id')}",
                 "unit_id": unit.get("id"),  # stable per-unit id for precise dedup
-                "beds": 1,
+                "beds": int(unit.get("beds")),
                 "has_den": bool(unit.get("den")),
                 "baths": unit.get("baths"),
                 "sqft": unit.get("sqft") or unit.get("dimensions"),

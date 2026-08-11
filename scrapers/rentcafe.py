@@ -56,7 +56,7 @@ def scrape(site_config: dict) -> list[dict]:
 
     out = []
     for fp in FP_RE.finditer(text):
-        if fp.group("beds") != "1":
+        if fp.group("beds") not in ("1", "2"):
             continue
         has_den = bool(fp.group("den"))
 
@@ -66,7 +66,7 @@ def scrape(site_config: dict) -> list[dict]:
                 "building": building_name,
                 "address": f"{um.group('unit')} - {building_name}",
                 "unit_or_layout": f"{fp.group('name')} ({um.group('unit')})",
-                "beds": 1,
+                "beds": int(fp.group("beds")),
                 "has_den": has_den,
                 "baths": float(fp.group("baths")),
                 "sqft": fp.group("sqft"),

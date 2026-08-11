@@ -29,16 +29,21 @@ def _format_listing_html(c: dict) -> str:
         flags.append("❌ NOT furnished (shown anyway per your preference)")
     if c.get("flag_gym_unverified"):
         flags.append("⚠️ gym unverified — confirm before applying")
-    if c.get("has_den"):
-        flags.append("➕ has den")
 
     flags_html = "".join(f'<li style="margin:2px 0;">{f}</li>' for f in flags)
     price = c.get("price")
     price_str = f"${price:,.0f}/mo" if price else "price n/a"
 
+    beds = c.get("beds")
+    bed_label = f"{beds}BR" if beds else "beds n/a"
+    if c.get("has_den"):
+        bed_label += "+Den"
+
     return f"""
     <div style="border:1px solid #ddd; border-radius:8px; padding:14px; margin-bottom:12px;">
-      <div style="font-size:16px; font-weight:600;">{c.get('building', 'Unknown building')} — {price_str}</div>
+      <div style="font-size:16px; font-weight:600;">{c.get('building', 'Unknown building')} — {price_str}
+        <span style="font-size:12px; font-weight:600; color:#3c6e58; background:#e3ede7; border-radius:4px; padding:2px 6px; margin-left:6px;">{bed_label}</span>
+      </div>
       <div style="color:#555; font-size:14px;">{c.get('address', '')}</div>
       <div style="color:#555; font-size:14px;">{c.get('unit_or_layout', '')} · {c.get('sqft', 'sqft n/a')} sqft · via {c.get('source_name', c.get('site'))}</div>
       {'<ul style="padding-left:18px; margin:8px 0 0 0; font-size:13px;">' + flags_html + '</ul>' if flags else ''}
@@ -105,10 +110,10 @@ def build_email_html(new_listings: list[dict], errors: list[dict]) -> str:
 
     return f"""
     <html><body style="font-family: -apple-system, Arial, sans-serif; max-width:600px; margin:0 auto;">
-      <h2>Toronto 1BR/1BR+Den Digest</h2>
+      <h2>Toronto 1–2BR Digest</h2>
       <p style="color:#666; font-size:13px;">
-        Filters: ≤${config.MAX_RENT:,}/mo · furnished · gym · Liberty Village / Fort York / King West area ·
-        move-in Nov 1–30
+        Filters: ≤${config.MAX_RENT:,}/mo · {config.MIN_BEDS}–{config.MAX_BEDS}BR (+den ok) · ≥{config.MIN_SQFT} sqft ·
+        furnished · gym · Liberty Village / Fort York / King West area · move-in Nov 1–30
       </p>
       {body}
       {_format_errors_html(errors)}

@@ -8,6 +8,7 @@ Run manually with:
     ./venv/bin/python3 main.py
 """
 import importlib
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -58,6 +59,21 @@ def run_all_scrapers():
     return all_candidates, errors
 
 
+def _parse_sqft(raw) -> "int | None":
+    """Sqft shows up as an int, a float, a numeric string, or a range
+    string like "500-599" depending on source. Returns the lower bound as
+    an int, or None if unparseable/absent — unknown sqft is let through
+    (same "don't drop on missing data" policy as furnished/gym), only a
+    known value below MIN_SQFT excludes a listing.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    digits = re.findall(r"\d+", str(raw))
+    return int(digits[0]) if digits else None
+
+
 def passes_hard_filters(c: dict) -> bool:
     price = c.get("price")
     if price is None or price > config.MAX_RENT:
@@ -65,6 +81,10 @@ def passes_hard_filters(c: dict) -> bool:
 
     beds = c.get("beds")
     if beds is None or not (config.MIN_BEDS <= beds <= config.MAX_BEDS):
+        return False
+
+    sqft = _parse_sqft(c.get("sqft"))
+    if sqft is not None and sqft < config.MIN_SQFT:
         return False
 
     # Furnished: hard requirement, but many sources can't verify it from a

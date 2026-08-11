@@ -9,9 +9,11 @@ from datetime import date
 # Hard filters — a listing that fails ANY of these is dropped silently.
 # ---------------------------------------------------------------------------
 MAX_RENT = 3800
-MIN_BEDS = 1          # 1BR or 1BR+den only (den doesn't count as a 2nd bed
-                       # on most sites, so max_beds stays 1 too)
-MAX_BEDS = 1
+MIN_BEDS = 1           # 1BR through 2BR, each optionally +den (den doesn't
+MAX_BEDS = 2           # add to the beds count, e.g. "1.5 bed" = 1BR+den)
+MIN_SQFT = 600         # excludes a listing only when sqft is known and
+                       # below this; unknown sqft is let through unfiltered
+                       # (same "don't drop on missing data" policy as furnished)
 REQUIRE_FURNISHED = True
 REQUIRE_GYM = True
 
