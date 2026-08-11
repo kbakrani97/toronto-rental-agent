@@ -93,6 +93,11 @@ SITES = [
         # neighbourhood-keyword area check (its address text won't say
         # "Liberty Village"/"King West").
         "always_in_area": True,
+        # Same policy as Rentals.ca (per your call): individually-owned
+        # condo rentals are frequently unfurnished, so hard-requiring
+        # furnished would silently drop real matches — show them labeled
+        # instead of excluding.
+        "allow_unfurnished": True,
     },
     {
         "name": "FourFifty The Well (RentCafe)",

@@ -26,7 +26,7 @@ def _format_listing_html(c: dict) -> str:
     if c.get("flag_furnished_unverified"):
         flags.append("⚠️ furnished status unverified — confirm before applying")
     if c.get("flag_not_furnished"):
-        flags.append("❌ NOT furnished (shown anyway — Rentals.ca inventory is rarely furnished)")
+        flags.append("❌ NOT furnished (shown anyway per your preference)")
     if c.get("flag_gym_unverified"):
         flags.append("⚠️ gym unverified — confirm before applying")
     if c.get("has_den"):
