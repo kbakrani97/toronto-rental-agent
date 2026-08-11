@@ -102,6 +102,24 @@ SITES = [
         "allow_unfurnished": True,
     },
     {
+        "name": "Condos.ca - Downtown area",
+        "group": "Condos.ca",
+        "scraper": "condos_ca_area",
+        "path": "toronto/downtown/condos-for-rent",
+        # Covers King West, Fort York, The Waterfront (and other Downtown
+        # neighbourhoods filtered out downstream) — see module docstring
+        # for the page-1-only coverage caveat.
+        "allow_unfurnished": True,
+    },
+    {
+        "name": "Condos.ca - West End area",
+        "group": "Condos.ca",
+        "scraper": "condos_ca_area",
+        "path": "toronto/west-end/condos-for-rent",
+        # Covers Liberty Village.
+        "allow_unfurnished": True,
+    },
+    {
         "name": "FourFifty The Well (RentCafe)",
         "group": "FourFifty The Well",
         "scraper": "rentcafe",

@@ -17,7 +17,7 @@ Both pages are fetched via headless Chromium (browser_fetch) since
 rentals.ca blocks plain HTTP requests — confirmed during build.
 """
 import json
-from browser_fetch import fetch_html
+from browser_fetch import BrowserSession
 
 BASE_URL = "https://rentals.ca/{path}"
 
@@ -65,12 +65,12 @@ def _extract_embedded_json(html: str, var_name: str) -> dict:
     return json.loads(html[start:end])
 
 
-def _candidate_building_paths(search_path: str) -> list[dict]:
+def _candidate_building_paths(session: BrowserSession, search_path: str) -> list[dict]:
     """Step 1: find buildings on the neighbourhood search page whose beds
     range overlaps 1-2BR and which aren't room-shares. Returns lightweight
     dicts with just enough to fetch each building's own page next.
     """
-    html = fetch_html(BASE_URL.format(path=search_path))
+    html = session.fetch_html(BASE_URL.format(path=search_path))
     payload = _extract_embedded_json(html, "search")
     edges = payload["data"]["edges"]
 
@@ -94,72 +94,79 @@ def _amenity_names(listing_json: dict) -> list[str]:
 
 def scrape(site_config: dict) -> list[dict]:
     search_path = site_config["path"]
-    buildings = _candidate_building_paths(search_path)
 
-    out = []
-    for b in buildings:
-        if not b["path"]:
-            continue
-        url = f"https://rentals.ca/{b['path']}"
-        try:
-            html = fetch_html(url)
-            listing = _extract_embedded_json(html, "listing")
-        except Exception as e:
-            # One building's detail page failing shouldn't drop the rest —
-            # log and move on. main.py's per-site error reporting is at the
-            # search-page level, not per-building, so this is a print, not
-            # a raised error.
-            print(f"[warn] Rentals.ca building detail fetch failed for {url}: {e}")
-            continue
+    # One Chromium instance reused for the search page AND every building
+    # detail page, paced with a small delay between requests — a fresh
+    # browser per request was slower and, we suspect, part of what was
+    # tripping rentals.ca's rate limiter (repeated 429s observed in
+    # production even though each request looked like a fresh session).
+    with BrowserSession(request_delay_sec=2.0) as session:
+        buildings = _candidate_building_paths(session, search_path)
 
-        building_name = listing.get("name") or b["name"]
-        address1 = listing.get("address1", "")
-        city = listing.get("city_name", "")
-        location = listing.get("location") or {}
-        building_furnished_raw = listing.get("furnished")  # "yes" / "no" / None
-        amenity_names = _amenity_names(listing)
-        # The structured `amenities` list is a small fixed taxonomy (~11
-        # generic tags) that misses marketing terms like "fitness studio" —
-        # confirmed on SVNTY, which has a real gym per its description_text
-        # ("...including a fitness studio...") but no matching structured
-        # tag. Search both, not just the structured list.
-        description_text = (listing.get("description_text") or "").lower()
-        amenities_text = " ".join(amenity_names) + " " + description_text
-        has_gym = any(k in amenities_text for k in GYM_KEYWORDS)
-        has_outdoor_pool = any(k in amenities_text for k in POOL_OUTDOOR_KEYWORDS)
-        has_indoor_pool = any(k in amenities_text for k in POOL_INDOOR_KEYWORDS)
-
-        for unit in listing.get("units", []):
-            if unit.get("beds") not in (1.0, 2.0):
+        out = []
+        for b in buildings:
+            if not b["path"]:
+                continue
+            url = f"https://rentals.ca/{b['path']}"
+            try:
+                html = session.fetch_html(url)
+                listing = _extract_embedded_json(html, "listing")
+            except Exception as e:
+                # One building's detail page failing shouldn't drop the rest —
+                # log and move on. main.py's per-site error reporting is at the
+                # search-page level, not per-building, so this is a print, not
+                # a raised error.
+                print(f"[warn] Rentals.ca building detail fetch failed for {url}: {e}")
                 continue
 
-            unit_furnished_raw = unit.get("furnished") or building_furnished_raw
-            furnished = {"yes": True, "no": False}.get(unit_furnished_raw, None)
+            building_name = listing.get("name") or b["name"]
+            address1 = listing.get("address1", "")
+            city = listing.get("city_name", "")
+            location = listing.get("location") or {}
+            building_furnished_raw = listing.get("furnished")  # "yes" / "no" / None
+            amenity_names = _amenity_names(listing)
+            # The structured `amenities` list is a small fixed taxonomy (~11
+            # generic tags) that misses marketing terms like "fitness studio" —
+            # confirmed on SVNTY, which has a real gym per its description_text
+            # ("...including a fitness studio...") but no matching structured
+            # tag. Search both, not just the structured list.
+            description_text = (listing.get("description_text") or "").lower()
+            amenities_text = " ".join(amenity_names) + " " + description_text
+            has_gym = any(k in amenities_text for k in GYM_KEYWORDS)
+            has_outdoor_pool = any(k in amenities_text for k in POOL_OUTDOOR_KEYWORDS)
+            has_indoor_pool = any(k in amenities_text for k in POOL_INDOOR_KEYWORDS)
 
-            avail = (unit.get("availability") or {})
-            avail_date = unit.get("date_available") or (avail.get("date") if not avail.get("immediate") else "immediate")
+            for unit in listing.get("units", []):
+                if unit.get("beds") not in (1.0, 2.0):
+                    continue
 
-            out.append({
-                "site": f"Rentals.ca ({search_path})",
-                "building": building_name,
-                "address": f"{address1}, {city}".strip(", "),
-                "unit_or_layout": f"unit {unit.get('id')}",
-                "unit_id": unit.get("id"),  # stable per-unit id for precise dedup
-                "beds": int(unit.get("beds")),
-                "has_den": bool(unit.get("den")),
-                "baths": unit.get("baths"),
-                "sqft": unit.get("sqft") or unit.get("dimensions"),
-                "price": unit.get("rent") or unit.get("rent_min"),
-                "available_date": avail_date,
-                "url": url,
-                "amenities_text": amenities_text,
-                "furnished": furnished,
-                "gym": has_gym,
-                "outdoor_pool": has_outdoor_pool,
-                "indoor_pool": has_indoor_pool,
-                "free_rent_flag": any(k in amenities_text for k in FREE_RENT_AMENITY_KEYWORDS),
-                "free_rent_detail": "",
-                "raw_lat": location.get("lat"),
-                "raw_lng": location.get("lng"),
-            })
+                unit_furnished_raw = unit.get("furnished") or building_furnished_raw
+                furnished = {"yes": True, "no": False}.get(unit_furnished_raw, None)
+
+                avail = (unit.get("availability") or {})
+                avail_date = unit.get("date_available") or (avail.get("date") if not avail.get("immediate") else "immediate")
+
+                out.append({
+                    "site": f"Rentals.ca ({search_path})",
+                    "building": building_name,
+                    "address": f"{address1}, {city}".strip(", "),
+                    "unit_or_layout": f"unit {unit.get('id')}",
+                    "unit_id": unit.get("id"),  # stable per-unit id for precise dedup
+                    "beds": int(unit.get("beds")),
+                    "has_den": bool(unit.get("den")),
+                    "baths": unit.get("baths"),
+                    "sqft": unit.get("sqft") or unit.get("dimensions"),
+                    "price": unit.get("rent") or unit.get("rent_min"),
+                    "available_date": avail_date,
+                    "url": url,
+                    "amenities_text": amenities_text,
+                    "furnished": furnished,
+                    "gym": has_gym,
+                    "outdoor_pool": has_outdoor_pool,
+                    "indoor_pool": has_indoor_pool,
+                    "free_rent_flag": any(k in amenities_text for k in FREE_RENT_AMENITY_KEYWORDS),
+                    "free_rent_detail": "",
+                    "raw_lat": location.get("lat"),
+                    "raw_lng": location.get("lng"),
+                })
     return out

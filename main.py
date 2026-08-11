@@ -21,6 +21,7 @@ SCRAPER_MODULES = {
     "tricon": "scrapers.tricon",
     "rentals_ca": "scrapers.rentals_ca",
     "condos_ca": "scrapers.condos_ca",
+    "condos_ca_area": "scrapers.condos_ca_area",
     "rentcafe": "scrapers.rentcafe",
 }
 
