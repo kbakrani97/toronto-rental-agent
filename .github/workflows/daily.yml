@@ -1,0 +1,41 @@
+name: Daily Toronto Rental Digest
+
+on:
+  schedule:
+    # 15:00 UTC = 8:00am PDT. Pacific switches to PST (UTC-8) when DST ends
+    # (first Sunday of November) — after that this fires at 7:00am PST
+    # until DST resumes in spring. Adjust the line below if you want it
+    # pinned to exactly 8:00am local year-round.
+    - cron: "0 15 * * *"
+  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: write  # needed to commit the updated dedupe state back to the repo
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+
+      - name: Run digest
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python main.py
+
+      - name: Commit updated dedupe state
+        run: |
+          git config user.name "rental-digest-bot"
+          git config user.email "actions@github.com"
+          git add state/seen_listings.json
+          git diff --cached --quiet || git commit -m "Update seen-listings state [skip ci]"
+          git push
