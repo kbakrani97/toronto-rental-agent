@@ -8,7 +8,7 @@ Python, so the recurring cost is effectively $0.
 ## What it checks
 
 - ≤ $3,800/mo
-- 1 bedroom or 1 bedroom + den
+- 1 bedroom, 1 bedroom + den or 2 bedroom
 - Furnished (hard requirement — see caveat below)
 - Building gym (hard requirement — see caveat below)
 - Liberty Village / Fort York / King West, or within 3km of the Salesforce
