@@ -29,11 +29,14 @@ from browser_fetch import fetch_html_text
 
 FP_RE = re.compile(
     r"(?P<name>[^\n]+)\n"
-    r"(?:Studio|(?P<beds>\d+) Bed)s?(?P<den>\s*\+\s*Den)? / (?P<baths>[\d.]+) Bath / (?P<sqft>[\d,]+) Sqft\n"
+    # Beds AND baths both pluralize independently ("1 Bed / 1 Bath" vs
+    # "2 Beds / 2 Baths") — confirmed missing "s?" on Bath silently dropped
+    # every 2-bed (2-bath) floor plan from matching at all.
+    r"(?:Studio|(?P<beds>\d+) Bed)s?(?P<den>\s*\+\s*Den)? / (?P<baths>[\d.]+) Baths? / (?P<sqft>[\d,]+) Sqft\n"
     r"[^\n]*\n"
     r"Floor plan details\n"
     r"Unit\tBase rent\tAvailability\t\n"
-    r"(?P<block>.*?)(?=\n[^\n]+\n(?:Studio|\d+ Bed) ?/ |\Z)",
+    r"(?P<block>.*?)(?=\n[^\n]+\n(?:Studio|\d+ Beds?) ?/ |\Z)",
     re.DOTALL,
 )
 UNIT_RE = re.compile(
