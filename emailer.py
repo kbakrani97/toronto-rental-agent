@@ -25,6 +25,8 @@ def _format_listing_html(c: dict) -> str:
         flags.append("🏊 indoor pool")
     if c.get("flag_furnished_unverified"):
         flags.append("⚠️ furnished status unverified — confirm before applying")
+    if c.get("flag_not_furnished"):
+        flags.append("❌ NOT furnished (shown anyway — Rentals.ca inventory is rarely furnished)")
     if c.get("flag_gym_unverified"):
         flags.append("⚠️ gym unverified — confirm before applying")
     if c.get("has_den"):
@@ -60,11 +62,46 @@ def _format_errors_html(errors: list[dict]) -> str:
     """
 
 
+def _group_listings(new_listings: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Group listings by their 'group' field (e.g. "The Taylor", "Rentals.ca"),
+    preserving config.SITES order, with each group's listings sorted by price.
+    """
+    order = []
+    seen = set()
+    for site in config.SITES:
+        g = site.get("group", site["name"])
+        if g not in seen:
+            seen.add(g)
+            order.append(g)
+
+    by_group: dict = {}
+    for c in new_listings:
+        by_group.setdefault(c.get("group", c.get("source_name", "Other")), []).append(c)
+
+    for listings in by_group.values():
+        listings.sort(key=lambda c: (c.get("price") is None, c.get("price")))
+
+    return [(g, by_group[g]) for g in order if g in by_group]
+
+
+def _format_group_html(group_name: str, listings: list[dict]) -> str:
+    cards = "".join(_format_listing_html(c) for c in listings)
+    return f"""
+    <div style="margin-bottom:24px;">
+      <div style="font-size:15px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em;
+                  color:#333; border-bottom:2px solid #333; padding-bottom:4px; margin-bottom:10px;">
+        {group_name} <span style="font-weight:400; color:#888; text-transform:none;">({len(listings)})</span>
+      </div>
+      {cards}
+    </div>
+    """
+
+
 def build_email_html(new_listings: list[dict], errors: list[dict]) -> str:
     if not new_listings:
         body = "<p>No new listings matched your filters today.</p>"
     else:
-        body = "".join(_format_listing_html(c) for c in new_listings)
+        body = "".join(_format_group_html(g, listings) for g, listings in _group_listings(new_listings))
 
     return f"""
     <html><body style="font-family: -apple-system, Arial, sans-serif; max-width:600px; margin:0 auto;">

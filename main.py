@@ -42,7 +42,9 @@ def run_all_scrapers():
             results = mod.scrape(site)
             for r in results:
                 r["source_name"] = site["name"]
+                r["group"] = site.get("group", site["name"])
                 r["always_in_area"] = site.get("always_in_area", False)
+                r["allow_unfurnished"] = site.get("allow_unfurnished", False)
             all_candidates.extend(results)
             print(f"[ok] {site['name']}: {len(results)} raw candidates")
         except Exception as e:
@@ -68,7 +70,11 @@ def passes_hard_filters(c: dict) -> bool:
     # Furnished: hard requirement, but many sources can't verify it from a
     # summary page. Policy: exclude only if EXPLICITLY not furnished;
     # unverified (None) is allowed through but flagged in the email.
-    if c.get("furnished") is False:
+    # Exception: sources marked allow_unfurnished (currently Rentals.ca,
+    # whose standard inventory is essentially always unfurnished) show
+    # unfurnished matches too, clearly labeled, rather than contributing
+    # ~nothing — see config.py for why.
+    if c.get("furnished") is False and not c.get("allow_unfurnished"):
         return False
 
     # Gym: same unverified-vs-explicitly-false policy as furnished.
@@ -112,6 +118,7 @@ def annotate_soft_signals(c: dict) -> dict:
     c["flag_outdoor_pool"] = c.get("outdoor_pool") or any(k in text for k in config.POOL_KEYWORDS_OUTDOOR)
     c["flag_indoor_pool"] = c.get("indoor_pool") or any(k in text for k in config.POOL_KEYWORDS_INDOOR)
     c["flag_furnished_unverified"] = c.get("furnished") is None
+    c["flag_not_furnished"] = c.get("furnished") is False  # only reaches here if allow_unfurnished let it through
     c["flag_gym_unverified"] = c.get("gym") is None
     return c
 
@@ -140,7 +147,7 @@ def main():
 
     for c in filtered:
         c["listing_id"] = store.make_listing_id(
-            c.get("site", ""), c.get("address", ""), c.get("unit_or_layout", ""), c.get("price")
+            c.get("site", ""), c.get("address", ""), c.get("unit_or_layout", "")
         )
 
     state = store.load_state()

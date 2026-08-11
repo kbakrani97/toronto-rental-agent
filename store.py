@@ -16,14 +16,17 @@ def _normalize(text: str) -> str:
     return " ".join((text or "").lower().split())
 
 
-def make_listing_id(site: str, address: str, unit_or_layout: str, price) -> str:
-    """Stable ID for dedupe: hash of site + normalized address + unit/layout + price bucket.
+def make_listing_id(site: str, address: str, unit_or_layout: str) -> str:
+    """Stable ID for dedupe: hash of site + normalized address + unit/layout.
 
-    Price is intentionally included so a *new* unit at a *different* price in
-    the same building is treated as a distinct listing, while re-scraping the
-    exact same still-listed unit each day produces the same id.
+    Deliberately excludes price — per policy, once a specific unit has been
+    emailed it's never re-sent, even if its price later changes. Every
+    scraper is expected to supply a stable per-unit identifier in
+    `unit_or_layout` (a real unit number/code/id, not a building-level
+    placeholder) so this correctly identifies the same physical unit across
+    daily runs regardless of price drift.
     """
-    raw = f"{_normalize(site)}|{_normalize(address)}|{_normalize(unit_or_layout)}|{price}"
+    raw = f"{_normalize(site)}|{_normalize(address)}|{_normalize(unit_or_layout)}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 

@@ -78,7 +78,13 @@ def scrape(site_config: dict) -> list[dict]:
                 "gym": has_gym,
                 "outdoor_pool": has_outdoor_pool,
                 "indoor_pool": has_indoor_pool,
-                "free_rent_flag": "free" in text_lower and ("month" in text_lower or "rent" in text_lower),
+                # Deliberately not scanning `text_lower` for a bare "free" —
+                # that matched unrelated phrases like "smoke-free community"
+                # on every listing. main.py's annotate_soft_signals() already
+                # checks amenities_text against config.FREE_RENT_KEYWORDS
+                # (specific phrases like "month free"), so this is left False
+                # here and let that shared, more precise check own it.
+                "free_rent_flag": False,
                 "free_rent_detail": "",
             })
     return out

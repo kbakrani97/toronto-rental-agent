@@ -1,36 +1,55 @@
 """
 Scraper for Rentals.ca neighbourhood/search pages.
 
-Rentals.ca server-renders a full GraphQL-style JSON payload inline in the
-page HTML (assigned to `App.store.search = { response: {...} }` inside a
-<script> tag). We fetch the plain HTML with `requests` and extract that
-JSON with a brace-balancing scan — no headless browser required.
+Two-step process:
+1. The neighbourhood search page (e.g. rentals.ca/toronto/liberty-village)
+   embeds a GraphQL-style summary JSON (`App.store.search = {response:{...}}`)
+   with one entry per BUILDING — used only to find which buildings have a
+   1-bedroom in range and to skip room-shares.
+2. For each such building, its own page (e.g. rentals.ca/toronto/svnty)
+   embeds a second JSON (`App.store.listing = {...}`) with a real per-UNIT
+   breakdown: exact rent, sqft, furnished flag, den flag, availability date,
+   and a stable unit id. That's what actually gets returned/emailed — the
+   step-1 summary was previously (incorrectly) used as a single fake
+   "building-level" listing with no sqft; this fixes that.
 
-CAVEAT: this gives building-level summaries (rentRange, bedsRange) from the
-search/neighbourhood page, not a definitive per-unit list. For a precise
-per-unit price you'd follow `path` into the building's own page, which
-embeds the same kind of payload with a per-floorplan breakdown. Not wired
-up yet — see TODO at bottom.
+Both pages are fetched via headless Chromium (browser_fetch) since
+rentals.ca blocks plain HTTP requests — confirmed during build.
 """
 import json
 from browser_fetch import fetch_html
 
 BASE_URL = "https://rentals.ca/{path}"
 
+GYM_KEYWORDS = ["gym", "fitness"]
+POOL_OUTDOOR_KEYWORDS = ["outdoor pool"]
+POOL_INDOOR_KEYWORDS = ["indoor pool"]
+FREE_RENT_AMENITY_KEYWORDS = ["free rent", "month free", "rent free"]
 
-def _extract_search_json(html: str) -> dict:
-    marker = "App.store.search = {"
+
+def _extract_embedded_json(html: str, var_name: str) -> dict:
+    """Extract a `App.store.<var_name> = {...}` (or `= {response: {...}}`)
+    JSON blob from inline <script> HTML using brace-balancing (regex alone
+    can't reliably match nested braces here).
+    """
+    marker = f"App.store.{var_name}"
     idx = html.find(marker)
     if idx == -1:
-        raise ValueError("Could not find embedded search data — rentals.ca may have changed its page structure")
+        raise ValueError(f"Could not find App.store.{var_name} — rentals.ca may have changed its page structure")
 
-    start = html.find("response:", idx) + len("response:")
-    # skip whitespace
+    # Search-page payloads wrap the JSON in `response: {...}` inside the
+    # outer object; listing-page payloads assign the JSON object directly.
+    # Look for a `response:` key within a short window after the marker —
+    # if present, start there; otherwise start at the `=`.
+    response_idx = html.find("response:", idx, idx + 200)
+    if response_idx != -1:
+        start = html.find(":", response_idx) + 1
+    else:
+        start = html.find("=", idx) + 1
     while html[start] in " \t\n":
         start += 1
 
     depth = 0
-    i = start
     end = -1
     for i in range(start, len(html)):
         if html[i] == "{":
@@ -41,57 +60,105 @@ def _extract_search_json(html: str) -> dict:
                 end = i + 1
                 break
     if end == -1:
-        raise ValueError("Unbalanced braces while extracting rentals.ca search JSON")
+        raise ValueError(f"Unbalanced braces while extracting App.store.{var_name}")
 
     return json.loads(html[start:end])
 
 
-def scrape(site_config: dict) -> list[dict]:
-    path = site_config["path"]
-    html = fetch_html(BASE_URL.format(path=path))
-
-    payload = _extract_search_json(html)
+def _candidate_building_paths(search_path: str) -> list[dict]:
+    """Step 1: find buildings on the neighbourhood search page whose beds
+    range includes 1 and which aren't room-shares. Returns lightweight
+    dicts with just enough to fetch each building's own page next.
+    """
+    html = fetch_html(BASE_URL.format(path=search_path))
+    payload = _extract_embedded_json(html, "search")
     edges = payload["data"]["edges"]
 
     out = []
     for edge in edges:
         node = edge["node"]
-        beds_range = node.get("bedsRange") or [None, None]
-        rent_range = node.get("rentRange") or [None, None]
-        address = node.get("address", {})
-        street = address.get("street", "")
-        city = (address.get("city") or {}).get("cityName", "")
-
-        # Skip room-shares (residential:room:*) — we only want whole apartments.
         if not (node.get("listingType") or "").startswith("residential:apartment"):
             continue
-
-        # Only keep buildings whose beds range includes a 1-bedroom.
+        beds_range = node.get("bedsRange") or [None, None]
         if not (beds_range[0] is not None and beds_range[0] <= 1 <= (beds_range[1] or beds_range[0])):
             continue
-
-        out.append({
-            "site": f"Rentals.ca ({path})",
-            "building": node.get("rentalListingName") or street,
-            "address": f"{street}, {city}",
-            "unit_or_layout": "building-level (see listing page for specific unit)",
-            "beds": 1,
-            "baths": None,
-            "sqft": None,
-            "price": rent_range[0],  # starting price; real unit price may differ
-            "price_max": rent_range[1],
-            "available_date": None,  # not in the summary payload
-            "url": f"https://rentals.ca/{node.get('path')}",
-            "amenities_text": "",
-            "furnished": None,  # not available at summary level
-            "free_rent_flag": False,
-            "free_rent_detail": "",
-            "raw_lat": (node.get("rentalListingLocation") or [None, None])[1],
-            "raw_lng": (node.get("rentalListingLocation") or [None, None])[0],
-        })
+        out.append({"path": node.get("path"), "name": node.get("rentalListingName")})
     return out
 
-# TODO (future improvement): fetch node["path"] individually and extract the
-# same App.store.search-style payload from the building's own page to get
-# real per-unit prices/availability/furnished status instead of the
-# building-level range. Left out of v1 to keep the request count low.
+
+def _amenity_names(listing_json: dict) -> list[str]:
+    amenities = listing_json.get("amenities") or listing_json.get("raw_amenities") or []
+    return [a.get("name", "").lower() for a in amenities if isinstance(a, dict)]
+
+
+def scrape(site_config: dict) -> list[dict]:
+    search_path = site_config["path"]
+    buildings = _candidate_building_paths(search_path)
+
+    out = []
+    for b in buildings:
+        if not b["path"]:
+            continue
+        url = f"https://rentals.ca/{b['path']}"
+        try:
+            html = fetch_html(url)
+            listing = _extract_embedded_json(html, "listing")
+        except Exception as e:
+            # One building's detail page failing shouldn't drop the rest —
+            # log and move on. main.py's per-site error reporting is at the
+            # search-page level, not per-building, so this is a print, not
+            # a raised error.
+            print(f"[warn] Rentals.ca building detail fetch failed for {url}: {e}")
+            continue
+
+        building_name = listing.get("name") or b["name"]
+        address1 = listing.get("address1", "")
+        city = listing.get("city_name", "")
+        location = listing.get("location") or {}
+        building_furnished_raw = listing.get("furnished")  # "yes" / "no" / None
+        amenity_names = _amenity_names(listing)
+        # The structured `amenities` list is a small fixed taxonomy (~11
+        # generic tags) that misses marketing terms like "fitness studio" —
+        # confirmed on SVNTY, which has a real gym per its description_text
+        # ("...including a fitness studio...") but no matching structured
+        # tag. Search both, not just the structured list.
+        description_text = (listing.get("description_text") or "").lower()
+        amenities_text = " ".join(amenity_names) + " " + description_text
+        has_gym = any(k in amenities_text for k in GYM_KEYWORDS)
+        has_outdoor_pool = any(k in amenities_text for k in POOL_OUTDOOR_KEYWORDS)
+        has_indoor_pool = any(k in amenities_text for k in POOL_INDOOR_KEYWORDS)
+
+        for unit in listing.get("units", []):
+            if unit.get("beds") != 1.0:
+                continue
+
+            unit_furnished_raw = unit.get("furnished") or building_furnished_raw
+            furnished = {"yes": True, "no": False}.get(unit_furnished_raw, None)
+
+            avail = (unit.get("availability") or {})
+            avail_date = unit.get("date_available") or (avail.get("date") if not avail.get("immediate") else "immediate")
+
+            out.append({
+                "site": f"Rentals.ca ({search_path})",
+                "building": building_name,
+                "address": f"{address1}, {city}".strip(", "),
+                "unit_or_layout": f"unit {unit.get('id')}",
+                "unit_id": unit.get("id"),  # stable per-unit id for precise dedup
+                "beds": 1,
+                "has_den": bool(unit.get("den")),
+                "baths": unit.get("baths"),
+                "sqft": unit.get("sqft") or unit.get("dimensions"),
+                "price": unit.get("rent") or unit.get("rent_min"),
+                "available_date": avail_date,
+                "url": url,
+                "amenities_text": amenities_text,
+                "furnished": furnished,
+                "gym": has_gym,
+                "outdoor_pool": has_outdoor_pool,
+                "indoor_pool": has_indoor_pool,
+                "free_rent_flag": any(k in amenities_text for k in FREE_RENT_AMENITY_KEYWORDS),
+                "free_rent_detail": "",
+                "raw_lat": location.get("lat"),
+                "raw_lng": location.get("lng"),
+            })
+    return out

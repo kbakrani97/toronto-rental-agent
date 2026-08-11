@@ -55,26 +55,38 @@ POOL_KEYWORDS_INDOOR = ["indoor pool"]
 # Sites. Each entry names the scraper module (in scrapers/) and any args
 # it needs. Add a new site by adding one dict here + one scraper module.
 # ---------------------------------------------------------------------------
+# The order below also controls the order sections appear in the email.
 SITES = [
     {
         "name": "The Taylor (Tricon)",
+        "group": "The Taylor",
         "scraper": "tricon",
         "slug": "the-taylor",
     },
     {
         "name": "Rentals.ca - Liberty Village",
+        "group": "Rentals.ca",
         "scraper": "rentals_ca",
         "path": "toronto/liberty-village",
         "fragile": True,  # observed intermittent 403s from rentals.ca's bot detection during build
+        # Rentals.ca's standard inventory is essentially always unfurnished
+        # (confirmed during build — 100% of a 28-unit sample). A hard
+        # furnished requirement would make this source contribute ~nothing,
+        # so per your call: show unfurnished matches too, clearly labeled,
+        # instead of hard-excluding them.
+        "allow_unfurnished": True,
     },
     {
         "name": "Rentals.ca - King Street West",
+        "group": "Rentals.ca",
         "scraper": "rentals_ca",
         "path": "toronto/king-street-west",
         "fragile": True,
+        "allow_unfurnished": True,
     },
     {
         "name": "Condos.ca - Ten York",
+        "group": "Condos.ca",
         "scraper": "condos_ca",
         "path": "toronto/ten-york-10-york-st",
         # Named building you asked for explicitly — skip the generic
@@ -84,6 +96,7 @@ SITES = [
     },
     {
         "name": "FourFifty The Well (RentCafe)",
+        "group": "FourFifty The Well",
         "scraper": "rentcafe",
         "path": "on/toronto/fourfifty-the-well",
         "fragile": True,  # Cloudflare-protected; failures here should warn, not crash the run
